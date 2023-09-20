@@ -88,7 +88,7 @@ def display():
 
 def read_next_frame():
 	global image
-	image = cv2.imread("frames/world112.jpg")
+	image = cv2.imread("frames/world118.jpg")
 	h, w, _ = image.shape
 	width = 600
 	height = int(width * (h / w))
@@ -97,31 +97,51 @@ def read_next_frame():
 def get_related_init(ids):
 	global init_poses
 	return [init_poses[id[0]] for id in ids ]
+
+def get_homography_and_warp(img,corners):
+    h, w = 80, 80  # or whatever dimensions you choose
+
+    reference_corners = np.array([
+        [0, 0],
+        [w - 1, 0],
+        [w - 1, h - 1],
+        [0, h - 1]
+    ], dtype=np.float32)
+    contour_corners = np.squeeze(corners)
+    print("Number of contour corners:", len(contour_corners))
+
+    # Compute the homography
+    H, _ = cv2.findHomography(contour_corners, reference_corners)
+
+    # Warp the region enclosed by the contour
+    warped = cv2.warpPerspective(img, H, (w, h))
+
+    return warped
+
 arg_parse()
 get_intrinsics()
 read_image()
 get_tag()
 setup_detector()
+
 corners, ids, rejected = detector.detectMarkers(image)
-init_poses = get_poses()
+for id, corner in zip(ids, corners):
+	rvec, tvec, markerPoints = cv2.aruco.estimatePoseSingleMarkers(corner, 0.18, camera_matrix, dist_matrix)
+init_corners_sorted = [i[0] for i in sorted(zip(ids,corners),key=lambda x: x[0])]
+
 draw_markers()
 display()
+
 read_next_frame()
 corners, ids, rejected = detector.detectMarkers(image)
-curr_poses = get_poses()
+curr_corners_sorted = [i[0] for i in sorted(zip(ids,corners),key=lambda x: x[0])]
 
-all_estimates = []
+related_init_corners = [init_corners_sorted[i] for i in ids]
 
-related_poses = get_related_init(ids)
-for initPose, currPose in zip(related_poses, curr_poses):
-    # Compute CameraPose for current marker
-    cameraPoseEstimate = np.dot(np.linalg.inv(initPose), currPose)
-    all_estimates.append(cameraPoseEstimate)
 
-# Compute the average pose
-avgCameraPose = np.mean(all_estimates, axis=0)
 
-print(avgCameraPose)
+
+
 
 draw_markers()
 display()
