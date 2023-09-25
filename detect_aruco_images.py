@@ -10,7 +10,7 @@ import sys
 import numpy as np
 
 first_img_path = "frames/002/frame_885.png"
-second_img_path = "frames/002/frame_895.png"
+second_img_path = "frames/002/frame_885.png"
 
 def load_aruco_dictionary_from_yaml(filename):
 	fs = cv2.FileStorage(filename, cv2.FileStorage_READ)
@@ -70,7 +70,7 @@ def get_poses():
 		cameraPose[:3, 3] = tvec.squeeze()
 		d.append((id,cameraPose))
 
-	return [i[1] for i in sorted(d, key=lambda x: x[0])]
+	return {i[0][0]:i[1] for i in sorted(d, key=lambda x: x[0])}
 
 def display():
 	cv2.imshow("Image", image)
@@ -88,6 +88,7 @@ def get_related_init(ids):
 	global init_poses
 	return [init_poses[id[0]] for id in ids ]
 
+
 get_intrinsics()
 read_image()
 
@@ -102,12 +103,16 @@ curr_poses = get_poses()
 
 all_estimates = []
 
-related_poses = get_related_init(ids)
 
-for initPose, currPose in zip(related_poses, curr_poses):
-    # Compute CameraPose for current marker
-    cameraPoseEstimate = np.dot(np.linalg.inv(initPose), currPose)
-    all_estimates.append(cameraPoseEstimate)
+
+for id in curr_poses.keys():
+	if id not in init_poses.keys():
+		continue
+	init_pose = init_poses[id]
+	curr_pose = curr_poses[id]
+	# Compute CameraPose for current marker
+	cameraPoseEstimate = np.dot(np.linalg.inv(init_pose), curr_pose)
+	all_estimates.append(cameraPoseEstimate)
 
 # Compute the average pose
 avgCameraPose = np.mean(all_estimates, axis=0)
