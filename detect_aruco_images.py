@@ -8,8 +8,9 @@ import argparse
 import cv2
 import sys
 import numpy as np
-import msgpack
 
+img_path = "frames/002/frame_895.png"
+second_img_path = "frames/002/frame_885.png"
 
 def load_aruco_dictionary_from_yaml(filename):
 	fs = cv2.FileStorage(filename, cv2.FileStorage_READ)
@@ -25,12 +26,7 @@ def load_aruco_dictionary_from_yaml(filename):
 	return aruco_dict
 
 
-def arg_parse():
-	global args
-	ap = argparse.ArgumentParser()
-	ap.add_argument("-i", "--image", required=True, help="path to input image containing ArUCo tag")
-	ap.add_argument("-t", "--type", type=str, default="DICT_ARUCO_ORIGINAL", help="type of ArUCo tag to detect")
-	args = vars(ap.parse_args())
+
 
 
 
@@ -45,22 +41,17 @@ def get_intrinsics():
 
 def read_image():
 	global image
-	image = cv2.imread(args["image"])
+	image = cv2.imread(img_path)
 	h, w, _ = image.shape
 	width = 600
 	height = int(width * (h / w))
 	image = cv2.resize(image, (width, height), interpolation=cv2.INTER_CUBIC)
 
-def get_tag():
-	# verify that the supplied ArUCo tag exists and is supported by OpenCV
-	if ARUCO_DICT.get(args["type"], None) is None:
-		print(f"ArUCo tag type '{args['type']}' is not supported")
-		sys.exit(0)
+
 def setup_detector():
 	global detector
 	# load the ArUCo dictionary, grab the ArUCo parameters, and detect
 	# the markers
-	print("Detecting '{}' tags....".format(args["type"]))
 	filename = "my_custom_dictionary.yml"
 	arucoDict = load_aruco_dictionary_from_yaml(filename)
 	arucoParams = cv2.aruco.DetectorParameters()
@@ -88,7 +79,7 @@ def display():
 
 def read_next_frame():
 	global image
-	image = cv2.imread("frames/world118.jpg")
+	image = cv2.imread(second_img_path)
 	h, w, _ = image.shape
 	width = 600
 	height = int(width * (h / w))
@@ -118,25 +109,34 @@ def get_homography_and_warp(img,corners):
 
     return warped
 
-arg_parse()
 get_intrinsics()
 read_image()
-get_tag()
 setup_detector()
 
 corners, ids, rejected = detector.detectMarkers(image)
+ids = [id[0] for id in ids]
 for id, corner in zip(ids, corners):
 	rvec, tvec, markerPoints = cv2.aruco.estimatePoseSingleMarkers(corner, 0.18, camera_matrix, dist_matrix)
-init_corners_sorted = [i[0] for i in sorted(zip(ids,corners),key=lambda x: x[0])]
+
+init_corners_sorted = {i[0] : i[1] for i in sorted(zip(ids,corners),key=lambda x: x[0])}
 
 draw_markers()
 display()
 
 read_next_frame()
 corners, ids, rejected = detector.detectMarkers(image)
-curr_corners_sorted = [i[0] for i in sorted(zip(ids,corners),key=lambda x: x[0])]
+ids = [id[0] for id in ids]
 
-related_init_corners = [init_corners_sorted[i] for i in ids]
+
+all_estimates = []
+
+for initPose, currPose in zip(init_poses, curr_poses):
+    # Compute CameraPose for current marker
+    cameraPoseEstimate = np.dot(np.linalg.inv(initPose), currPose)
+    all_estimates.append(cameraPoseEstimate)
+
+# Compute the average pose
+avgCameraPose = np.mean(all_estimates, axis=0)
 
 
 
