@@ -8,7 +8,7 @@ import argparse
 import cv2
 import sys
 import numpy as np
-import msgpack
+
 
 
 def load_aruco_dictionary_from_yaml(filename):
