@@ -9,7 +9,7 @@ import cv2
 import sys
 import numpy as np
 
-first_img_path = "frames/002/frame_885.png"
+first_img_path = "frames/002/frame_500.png"
 second_img_path = "frames/002/frame_885.png"
 
 def load_aruco_dictionary_from_yaml(filename):
@@ -60,10 +60,11 @@ def setup_detector():
 
 def draw_markers():
 	cv2.aruco.drawDetectedMarkers(image, corners)
+
 def get_poses():
 	d = []
 	for id,corner in zip(ids,corners):
-		rvec, tvec, markerPoints = cv2.aruco.estimatePoseSingleMarkers(corner, 0.18, camera_matrix, dist_matrix)
+		rvec, tvec, markerPoints = cv2.aruco.estimatePoseSingleMarkers(corner, 0.1341 , camera_matrix, dist_matrix)
 		rot_mtx, _ = cv2.Rodrigues(rvec)
 		cameraPose = np.eye(4)
 		cameraPose[:3, :3] = rot_mtx
