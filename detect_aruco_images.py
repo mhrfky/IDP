@@ -10,7 +10,7 @@ import sys
 import numpy as np
 
 first_img_path = "frames/002/frame_500.png"
-second_img_path = "frames/002/frame_885.png"
+second_img_path = "frames/002/frame_886.png"
 
 def load_aruco_dictionary_from_yaml(filename):
 	fs = cv2.FileStorage(filename, cv2.FileStorage_READ)
@@ -54,6 +54,11 @@ def setup_detector():
 	filename = "my_custom_dictionary.yml"
 	arucoDict = load_aruco_dictionary_from_yaml(filename)
 	arucoParams = cv2.aruco.DetectorParameters()
+	arucoParams.adaptiveThreshConstant = 7
+	arucoParams.adaptiveThreshWinSizeMax = 30
+	arucoParams.adaptiveThreshWinSizeMin = 3
+	arucoParams.adaptiveThreshWinSizeStep = 25
+
 	detector = cv2.aruco.ArucoDetector(arucoDict, arucoParams)
 
 
@@ -74,7 +79,16 @@ def get_poses():
 	return {i[0][0]:i[1] for i in sorted(d, key=lambda x: x[0])}
 
 def display():
-	cv2.imshow("Image", image)
+	# Get the dimensions of the image
+	height, width = image.shape[:2]
+
+	# Define the scale factor
+	scale_factor = 2.0  # Example: 2.0 will double the display size of the image
+
+	# Resize the image
+	image_resized = cv2.resize(image, (int(width * scale_factor), int(height * scale_factor)))
+
+	cv2.imshow("Image", image_resized)
 	cv2.waitKey(0)
 
 def read_next_frame():
