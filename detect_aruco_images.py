@@ -10,7 +10,7 @@ import sys
 import numpy as np
 from visualize_in_2d import visualize_fov
 first_img_path = "frames/002/frame_0.png"
-second_img_path = "frames/002/frame_886.png"
+second_img_path = "frames/002/frame_2.png"
 from scipy.spatial.transform import Rotation as R
 def load_aruco_dictionary_from_yaml(filename):
 	fs = cv2.FileStorage(filename, cv2.FileStorage_READ)
@@ -99,9 +99,7 @@ def read_next_frame():
 	height = int(width * (h / w))
 	image = cv2.resize(image, (width, height), interpolation=cv2.INTER_CUBIC)
 
-def get_related_init(ids):
-	global init_poses
-	return [init_poses[id[0]] for id in ids ]
+
 
 
 get_intrinsics()

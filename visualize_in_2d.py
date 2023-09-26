@@ -1,42 +1,33 @@
 import matplotlib.pyplot as plt
 import matplotlib.patches as patches
 import numpy as np
+import cv2
 
 
 def visualize_fov(transformation_matrix):
-    """
-    Visualize the Field of View on a cylindrical screen based on the transformation matrix.
-    :param transformation_matrix: 4x4 numpy array representing the transformation matrix.
-    """
-    # radius of the cylindrical screen (distance to the user)
-    r = 7.5  # Modify as needed
+    r = 7.5
+    yaw_head = np.arctan2(transformation_matrix[0, 2], transformation_matrix[0, 0]) * (180 / np.pi)
 
-    # Extract yaw (rotation around y-axis in this case) from the transformation matrix
-    yaw_head = np.arctan2(transformation_matrix[0, 2], transformation_matrix[0, 0]) * (
-            180 / np.pi)  # Convert to degrees
+    sensitivity_factor = 0.5  # Lower value, less sensitivity. You can adjust this value.
+    yaw_head *= sensitivity_factor  # Reduce the sensitivity of the yaw movement
 
-    # Compute the apparent height and position of the rectangle on the viewing plane
+    fov = 45  # Also consider reducing the field of view for less jumpiness
+    apparent_height = 150
+    y_position = transformation_matrix[1, 3] * 50
 
-    fov = 50  # Assuming a field of view of 10 degrees for simplicity
-    distance = np.linalg.norm(transformation_matrix[:3, 3])
-    apparent_height = 4
-    y_position = transformation_matrix[1, 3]  # y translation of the transformation matrix
+    img = np.ones((300, 600, 3), dtype=np.uint8) * 255
 
-    # Create a new figure and set axis limits
-    fig, ax = plt.subplots()
-    ax.set_xlim(-50, 50)  # Cylinder unfolded in x-axis from -180 to 180 degrees
-    ax.set_ylim(-3, 3)  # Cylinder height in the range [-r, r]
+    center_x = int(300 + yaw_head * 300 / 50)
+    center_y = int(150 - y_position)
 
-    # Draw a rectangle to represent the field of view
-    rect = patches.Rectangle((yaw_head - fov / 2, -y_position - apparent_height / 2), fov, apparent_height,
-                             color='r')
-    ax.add_patch(rect)
+    start_point = (center_x - int(fov), center_y - int(apparent_height / 2))
+    end_point = (center_x + int(fov), center_y + int(apparent_height / 2))
+    color = (0, 0, 255)
+    thickness = 2
 
-    # Display the plot
-    plt.xlabel('Yaw (degrees)')
-    plt.ylabel('Height')
-    plt.title('Field of View on Cylindrical Screen')
-    plt.show()
+    img = cv2.rectangle(img, start_point, end_point, color, thickness)
+
+    cv2.imshow('Field of View', img)
 
 
 if __name__ == "__main__":
