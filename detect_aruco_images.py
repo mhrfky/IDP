@@ -9,7 +9,7 @@ import cv2
 import sys
 import numpy as np
 
-img_path = "frames/002/frame_0.png"
+img_path = "frames/002/frame_885.png"
 second_img_path = "frames/002/frame_885.png"
 
 def load_aruco_dictionary_from_yaml(filename):
@@ -138,11 +138,14 @@ points3d_to_compare = np.array([tvecs[i] for i in ids])
 marker_positions = np.array(marker_positions)
 
 #Number of points are not enough
-a = cv2.solvePnP(points3d_to_compare,marker_positions,camera_matrix, dist_matrix)
+a, rvec, tvec = cv2.solvePnP(points3d_to_compare,marker_positions,camera_matrix, dist_matrix, flags=cv2.SOLVEPNP_SQPNP)
 
+rot_mtx, _ = cv2.Rodrigues(rvec)
+cameraPose = np.eye(4)
+cameraPose[:3, :3] = rot_mtx
+cameraPose[:3, 3] = tvec.squeeze()
 
-
-
+print(cameraPose)
 
 draw_markers()
 display()
