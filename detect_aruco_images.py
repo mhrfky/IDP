@@ -8,10 +8,10 @@ import argparse
 import cv2
 import sys
 import numpy as np
-
-first_img_path = "frames/002/frame_500.png"
+from visualize_in_2d import visualize_fov
+first_img_path = "frames/002/frame_0.png"
 second_img_path = "frames/002/frame_886.png"
-
+from scipy.spatial.transform import Rotation as R
 def load_aruco_dictionary_from_yaml(filename):
 	fs = cv2.FileStorage(filename, cv2.FileStorage_READ)
 	if not fs.isOpened():
@@ -54,7 +54,7 @@ def setup_detector():
 	filename = "my_custom_dictionary.yml"
 	arucoDict = load_aruco_dictionary_from_yaml(filename)
 	arucoParams = cv2.aruco.DetectorParameters()
-	arucoParams.adaptiveThreshConstant = 7
+	arucoParams.adaptiveThreshConstant = 10
 	arucoParams.adaptiveThreshWinSizeMax = 30
 	arucoParams.adaptiveThreshWinSizeMin = 3
 	arucoParams.adaptiveThreshWinSizeStep = 25
@@ -116,23 +116,43 @@ read_next_frame()
 corners, ids, rejected = detector.detectMarkers(image)
 curr_poses = get_poses()
 
-all_estimates = []
 
 
+all_rotations = []
+all_translations = []
 
-for id in curr_poses.keys():
-	if id not in init_poses.keys():
+for id, curr_pose in curr_poses.items():
+	if id not in init_poses:
 		continue
-	init_pose = init_poses[id]
-	curr_pose = curr_poses[id]
-	# Compute CameraPose for current marker
-	cameraPoseEstimate = np.dot(np.linalg.inv(init_pose), curr_pose)
-	all_estimates.append(cameraPoseEstimate)
 
-# Compute the average pose
-avgCameraPose = np.mean(all_estimates, axis=0)
+	init_pose = init_poses[id]
+
+	# Compute relative Camera Pose for current marker
+	relative_pose = np.dot(np.linalg.inv(init_pose), curr_pose)
+
+	# Extract rotation and translation from the transformation matrix
+	rotation = relative_pose[:3, :3]
+	translation = relative_pose[:3, 3]
+
+	all_rotations.append(rotation)
+	all_translations.append(translation)
+
+# Convert rotation matrices to quaternions
+rotations_quaternion = [R.from_matrix(rot).as_quat() for rot in all_rotations]
+
+# Average the quaternions and translations
+avg_quaternion = np.mean(rotations_quaternion, axis=0)
+avg_translation = np.mean(all_translations, axis=0)
+
+# Convert averaged quaternion back to rotation matrix
+avg_rotation = R.from_quat(avg_quaternion).as_matrix()
+
+# Form the averaged transformation matrix
+avgCameraPose = np.eye(4)
+avgCameraPose[:3, :3] = avg_rotation
+avgCameraPose[:3, 3] = avg_translation
 
 print(avgCameraPose)
-
+visualize_fov(avgCameraPose)
 draw_markers()
 display()
