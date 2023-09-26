@@ -9,7 +9,7 @@ import cv2
 import sys
 import numpy as np
 
-img_path = "frames/002/frame_895.png"
+img_path = "frames/002/frame_0.png"
 second_img_path = "frames/002/frame_885.png"
 
 def load_aruco_dictionary_from_yaml(filename):
@@ -63,15 +63,17 @@ def draw_markers():
 	cv2.aruco.drawDetectedMarkers(image, corners)
 def get_poses():
 	d = []
+	tvecs = []
 	for id,corner in zip(ids,corners):
 		rvec, tvec, markerPoints = cv2.aruco.estimatePoseSingleMarkers(corner, 0.18, camera_matrix, dist_matrix)
 		rot_mtx, _ = cv2.Rodrigues(rvec)
 		cameraPose = np.eye(4)
 		cameraPose[:3, :3] = rot_mtx
 		cameraPose[:3, 3] = tvec.squeeze()
+		tvecs.append((id,tvec))
 		d.append((id,cameraPose))
 
-	return [i[1] for i in sorted(d, key=lambda x: x[0])]
+	return {np.squeeze(i[0]) : np.squeeze(i[1]) for i in sorted(d, key=lambda x: x[0])}, {np.squeeze(i[0]) : np.squeeze(i[1]) for i in sorted(tvecs, key=lambda x: x[0])}
 
 def display():
 	cv2.imshow("Image", image)
@@ -118,26 +120,25 @@ ids = [id[0] for id in ids]
 for id, corner in zip(ids, corners):
 	rvec, tvec, markerPoints = cv2.aruco.estimatePoseSingleMarkers(corner, 0.18, camera_matrix, dist_matrix)
 
-init_corners_sorted = {i[0] : i[1] for i in sorted(zip(ids,corners),key=lambda x: x[0])}
-
+init_corners_dict= {i[0] : np.squeeze(i[1]) for i in sorted(zip(ids,corners),key=lambda x: x[0])}
+init_poses,tvecs = get_poses()
 draw_markers()
 display()
 
 read_next_frame()
 corners, ids, rejected = detector.detectMarkers(image)
-ids = [id[0] for id in ids]
+ids = np.squeeze(ids)
 
+marker_positions = []
+for i,corner_set in enumerate(corners):
+	pos = np.mean(np.squeeze(corner_set),0)
+	marker_positions.append(pos)
 
-all_estimates = []
+points3d_to_compare = np.array([tvecs[i] for i in ids])
+marker_positions = np.array(marker_positions)
 
-for initPose, currPose in zip(init_poses, curr_poses):
-    # Compute CameraPose for current marker
-    cameraPoseEstimate = np.dot(np.linalg.inv(initPose), currPose)
-    all_estimates.append(cameraPoseEstimate)
-
-# Compute the average pose
-avgCameraPose = np.mean(all_estimates, axis=0)
-
+#Number of points are not enough
+a = cv2.solvePnP(points3d_to_compare,marker_positions,camera_matrix, dist_matrix)
 
 
 
