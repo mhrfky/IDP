@@ -17,9 +17,9 @@ def visualize_fov(transformation_matrix):
 
     # Compute the apparent height and position of the rectangle on the viewing plane
 
-    fov = 10  # Assuming a field of view of 10 degrees for simplicity
-    distance = np.linalg.norm(transformation_matrix[:3, 3]) * 8
-    apparent_height = np.tan(np.radians(fov / 2)) * distance * 2
+    fov = 50  # Assuming a field of view of 10 degrees for simplicity
+    distance = np.linalg.norm(transformation_matrix[:3, 3])
+    apparent_height = 4
     y_position = transformation_matrix[1, 3]  # y translation of the transformation matrix
 
     # Create a new figure and set axis limits
