@@ -11,6 +11,8 @@ import time
 import cv2
 import sys
 from visualize_in_2d import visualize_fov
+from visualize_2d_new import visualize_head_pose_from_matrix
+
 from scipy.spatial.transform import Rotation as R
 
 
@@ -134,9 +136,11 @@ def kalman_filter_setup():
 
     return kf
 
-
 video = "002/world.mp4"
 video = cv2.VideoCapture(video)
+
+# Set the starting frame to 500
+video.set(cv2.CAP_PROP_POS_FRAMES, 400)
 get_intrinsics()
 setup_detector()
 
@@ -212,7 +216,7 @@ while True:
 
 
 
-    visualize_fov(corrected_pose)
+    visualize_head_pose_from_matrix(corrected_pose)
 
 
 
