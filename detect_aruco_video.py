@@ -83,42 +83,28 @@ def display(image):
 
     cv2.imshow("Image", image)
 
-
+def homography_to_transformation(H):
+    T = np.zeros((4, 4))
+    T[:3, :3] = H
+    T[3, 3] = 1
+    return T
 def get_transformation_matrix(curr_poses):
-    all_rotations = []
-    all_translations = []
+    src_pts = []
+    dst_pts = []
 
     for id, curr_pose in curr_poses.items():
         if id not in init_poses:
             continue
 
-        init_pose = init_poses[id]
-
+        src_pts.extend(init_poses[id])
+        dst_pts.extend(curr_poses[id])
+    src_pts = np.array(src_pts)
+    dst_pts = np.array(dst_pts)
         # Compute relative Camera Pose for current marker
-        relative_pose = np.dot(np.linalg.inv(init_pose), curr_pose)
+    H, _ = cv2.findHomography(src_pts, dst_pts)
 
-        # Extract rotation and translation from the transformation matrix
-        rotation = relative_pose[:3, :3]
-        translation = relative_pose[:3, 3]
 
-        all_rotations.append(rotation)
-        all_translations.append(translation)
-
-    # Convert rotation matrices to quaternions
-    rotations_quaternion = [R.from_matrix(rot).as_quat() for rot in all_rotations]
-
-    # Average the quaternions and translations
-    avg_quaternion = np.mean(rotations_quaternion, axis=0)
-    avg_translation = np.mean(all_translations, axis=0)
-
-    # Convert averaged quaternion back to rotation matrix
-    avg_rotation = R.from_quat(avg_quaternion).as_matrix()
-
-    # Form the averaged transformation matrix
-    avgCameraPose = np.eye(4)
-    avgCameraPose[:3, :3] = avg_rotation
-    avgCameraPose[:3, 3] = avg_translation
-    return avgCameraPose
+    return homography_to_transformation(H)
 
 
 def kalman_filter_setup():
@@ -135,6 +121,21 @@ def kalman_filter_setup():
     kf.statePost = np.zeros((6, 1), dtype=np.float32)  # Adjust initial state as needed
 
     return kf
+
+
+def visualize_marker_head_pose(rvec, tvec, camera_matrix, dist_matrix):
+    rot_mtx, _ = cv2.Rodrigues(rvec)
+
+    # Convert rotation matrix to Euler angles
+    rotation = R.from_matrix(rot_mtx)
+    roll, pitch, yaw = rotation.as_euler('zyx', degrees=True)
+
+    # Prepare the transformation matrix for visualization
+    cameraPose = np.eye(4)
+    cameraPose[:3, :3] = rot_mtx
+    cameraPose[:3, 3] = tvec.squeeze()
+
+    visualize_head_pose_from_matrix(cameraPose)
 
 video = "002/world.mp4"
 video = cv2.VideoCapture(video)
@@ -153,17 +154,20 @@ delay = int(1000 / fps)  # Real-time delay
 weights = [0.5, 0.3, 0.2]  # Example weights for the last three transformations
 measurements = []  # List to hold the last n measurements
 n = 3  # Number of matrices to consider for moving average
+
+
+
 while True:
     ret, frame = video.read()
     if not ret:
         break
 
     corners, ids, rejected = detector.detectMarkers(frame)
-
+    ids = [id[0] for id in ids]
+    cornerss = [marker[0] for marker in corners]
     if init_poses is None:
-        init_poses = get_poses(ids, corners)
-
-    curr_poses = get_poses(ids, corners)
+        init_poses = dict(zip(ids, cornerss))
+    curr_poses = dict(zip(ids, cornerss))
 
     if curr_poses is None:
         continue
@@ -171,57 +175,17 @@ while True:
     draw_markers(frame, corners)
     display(frame)
 
+    # For each detected marker, visualize its head pose
+    for id, corner in zip(ids, corners):
+        rvec, tvec, markerPoints = cv2.aruco.estimatePoseSingleMarkers(corner, 0.1341, camera_matrix, dist_matrix)
+        visualize_marker_head_pose(rvec, tvec, camera_matrix, dist_matrix)
+
     avgCameraPose = get_transformation_matrix(curr_poses)
 
     if avgCameraPose is None:  # Handle the case if you don't get a transformation matrix
         continue
 
-    # Predict the next state
-    prediction = kf.predict()
-
-    # Extracting the Translation
-    measurement_translation = avgCameraPose[:3, 3].reshape((3, 1))
-    rot_matrix = avgCameraPose[:3, :3]
-    rotation_vec, _ = cv2.Rodrigues(rot_matrix)
-    measurement = np.vstack((measurement_translation, rotation_vec))
-
-    measurements.append(measurement)
-    if len(measurements) > n:
-        measurements.pop(0)  # Remove the oldest measurement if we have more than n
-
-    # Ensure the list of weights is the same length as measurements
-    valid_weights = weights[-len(measurements):]
-
-    # Normalize weights
-    weights_sum = sum(valid_weights)
-    normalized_weights = [w / weights_sum for w in valid_weights]
-
-    avg_measurement = np.average(measurements, axis=0, weights=normalized_weights)
-    avg_measurement = avg_measurement.astype(np.float32)
-
-    # Predict the next state
-    prediction = kf.predict()
-
-    # Correct the predicted state
-    corrected_state = kf.correct(avg_measurement)
-
-
-
-    corrected_translation = corrected_state[:3]
-    corrected_rotation_vec = corrected_state[3:]
-    corrected_rot_matrix, _ = cv2.Rodrigues(corrected_rotation_vec)
-    corrected_pose = np.eye(4)
-    corrected_pose[:3, :3] = corrected_rot_matrix
-    corrected_pose[:3, 3] = corrected_translation.flatten()
-
-
-
-    visualize_head_pose_from_matrix(corrected_pose)
-
-
-
-    # Use corrected_state for further processing as needed
-    # ...
+    visualize_head_pose_from_matrix(avgCameraPose)
 
     key = cv2.waitKey(delay) & 0xFF
     if key == ord("q"):
