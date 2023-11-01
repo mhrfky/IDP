@@ -15,6 +15,8 @@ from visualize_2d_new import visualize_head_pose_from_matrix
 
 from scipy.spatial.transform import Rotation as R
 
+import pandas as pd
+
 
 def load_aruco_dictionary_from_yaml(filename):
     fs = cv2.FileStorage(filename, cv2.FileStorage_READ)
@@ -83,11 +85,26 @@ def display(image):
 
     cv2.imshow("Image", image)
 
-def homography_to_transformation(H):
-    T = np.zeros((4, 4))
-    T[:3, :3] = H
-    T[3, 3] = 1
-    return T
+
+def decompose_homography(K, H):
+    # Normalize the homography
+    H /= H[2, 2]
+
+    # Compute the rotation matrix
+    K_inv = np.linalg.inv(K)
+    R_ = np.dot(K_inv, H)
+
+    # Orthonormalize the rotation matrix
+    U, _, Vt = np.linalg.svd(R_[:, :2])
+
+    R = np.zeros((3, 3))
+    W = np.array([[1, 0], [0, 1], [0, 0]])  # We'll create a transformation matrix to fix the sizes
+    R[:, :2] = np.dot(U, np.dot(W, Vt))
+    R[:, 2] = np.cross(R[:, 0], R[:, 1])
+
+    return R
+
+
 def get_transformation_matrix(curr_poses):
     src_pts = []
     dst_pts = []
@@ -100,11 +117,16 @@ def get_transformation_matrix(curr_poses):
         dst_pts.extend(curr_poses[id])
     src_pts = np.array(src_pts)
     dst_pts = np.array(dst_pts)
-        # Compute relative Camera Pose for current marker
+
     H, _ = cv2.findHomography(src_pts, dst_pts)
 
+    # Extract rotation matrix from the homography
+    R = decompose_homography(camera_matrix, H)
 
-    return homography_to_transformation(H)
+    T = np.eye(4)
+    T[:3, :3] = R
+
+    return T
 
 
 def kalman_filter_setup():
@@ -123,25 +145,24 @@ def kalman_filter_setup():
     return kf
 
 
-def visualize_marker_head_pose(rvec, tvec, camera_matrix, dist_matrix):
-    rot_mtx, _ = cv2.Rodrigues(rvec)
+def get_gaze_positions():
 
-    # Convert rotation matrix to Euler angles
-    rotation = R.from_matrix(rot_mtx)
-    roll, pitch, yaw = rotation.as_euler('zyx', degrees=True)
+    # Load the DataFrame (assuming you've already done this)
+    df = pd.read_csv("000/exports/000/gaze_positions.csv")
 
-    # Prepare the transformation matrix for visualization
-    cameraPose = np.eye(4)
-    cameraPose[:3, :3] = rot_mtx
-    cameraPose[:3, 3] = tvec.squeeze()
+    # Group by 'world_index' and get the row with the highest 'confidence' for each group
+    df_max_confidence = df.loc[df.groupby('world_index')['confidence'].idxmax()]
 
-    visualize_head_pose_from_matrix(cameraPose)
+    df_max_confidence = df_max_confidence[['world_index', 'norm_pos_x', 'norm_pos_y']]
 
-video = "002/world.mp4"
+    return  df_max_confidence.values.tolist()
+
+
+video = "000/world.mp4"
 video = cv2.VideoCapture(video)
 
 # Set the starting frame to 500
-video.set(cv2.CAP_PROP_POS_FRAMES, 400)
+video.set(cv2.CAP_PROP_POS_FRAMES, 0)
 get_intrinsics()
 setup_detector()
 
@@ -150,46 +171,74 @@ kf = kalman_filter_setup()
 
 fps = video.get(cv2.CAP_PROP_FPS)
 delay = int(1000 / fps)  # Real-time delay
+number_of_frames = int(video.get(cv2.CAP_PROP_FRAME_COUNT))
 
 weights = [0.5, 0.3, 0.2]  # Example weights for the last three transformations
 measurements = []  # List to hold the last n measurements
 n = 3  # Number of matrices to consider for moving average
 
+# Initialize previous state for Kalman filter
+previous_state = None
 
+gaze_positions = get_gaze_positions()
+gaze_positions_iter = iter(gaze_positions)
 
 while True:
     ret, frame = video.read()
+    gaze_position = next(gaze_positions_iter)
+    shape = frame.shape
     if not ret:
         break
 
     corners, ids, rejected = detector.detectMarkers(frame)
+    if ids is None:
+        continue  # Skip the rest of the loop if no markers are detected
     ids = [id[0] for id in ids]
     cornerss = [marker[0] for marker in corners]
+
     if init_poses is None:
         init_poses = dict(zip(ids, cornerss))
     curr_poses = dict(zip(ids, cornerss))
 
-    if curr_poses is None:
-        continue
-
     draw_markers(frame, corners)
     display(frame)
-
-    # For each detected marker, visualize its head pose
-    for id, corner in zip(ids, corners):
-        rvec, tvec, markerPoints = cv2.aruco.estimatePoseSingleMarkers(corner, 0.1341, camera_matrix, dist_matrix)
-        visualize_marker_head_pose(rvec, tvec, camera_matrix, dist_matrix)
 
     avgCameraPose = get_transformation_matrix(curr_poses)
 
     if avgCameraPose is None:  # Handle the case if you don't get a transformation matrix
         continue
 
-    visualize_head_pose_from_matrix(avgCameraPose)
+    # Convert transformation matrix to translation and Euler angles
+    tvec = avgCameraPose[:3, 3]
+    rotation = R.from_matrix(avgCameraPose[:3, :3])
+    roll, pitch, yaw = rotation.as_euler('zyx', degrees=True)
+
+    # Form the state vector [x, y, z, roll, pitch, yaw]
+    state = np.array([tvec[0], tvec[1], tvec[2], roll, pitch, yaw], dtype=np.float32)
+    state = state.reshape(-1, 1)  # Reshape to column vector
+
+    if previous_state is None:
+        kf.statePost = state
+    else:
+        # Use Kalman filter to predict the state
+        predicted_state = kf.predict()
+
+        # Update the Kalman filter with the current measurement
+        kf.correct(state)
+
+    # Store this state for the next iteration
+    previous_state = state
+
+    visualize_head_pose_from_matrix(avgCameraPose, gaze_position,curr_poses)
 
     key = cv2.waitKey(delay) & 0xFF
     if key == ord("q"):
         break
+    elif key == ord("w"):
+
+        key =  cv2.waitKey()
+        if key == ord("q"):
+            break
 
 cv2.destroyAllWindows()
 video.release()
