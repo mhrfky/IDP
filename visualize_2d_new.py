@@ -23,6 +23,22 @@ MARKER_NOT_VISIBLE_COLOR = (0,255,255)
 GAZE_CIRCLE_COLOR = (0,255,0)
 GAZE_CIRCLE_RADIUS = 5
 MARKER_ENLARGEMENT_RATE = 2
+
+def visualize_head_pose_from_yaw_pitch_roll(yaw,pitch,roll,gaze_position,markers = None):
+    img = np.ones((IMG_SIZE[1], IMG_SIZE[0], 3), dtype=np.uint8) * 255
+
+    center, center_x, center_y, translated_rect = get_translated_view_rectangle(pitch, roll, yaw)
+
+    draw_gaze_circle(center_x, center_y, gaze_position, img)
+    draw_markers(center, markers, img)
+
+    # Add the current pose to the buffer and remove the oldest if exceeded size
+    visualize_fov(img, translated_rect)
+
+    write_rotations(img, pitch, roll, yaw)
+    cv2.imshow('Head Pose', img)
+
+
 def visualize_head_pose_from_matrix(transformation_matrix, gaze_position, markers=None):
     global past_poses
 
@@ -39,7 +55,7 @@ def visualize_head_pose_from_matrix(transformation_matrix, gaze_position, marker
     # Add the current pose to the buffer and remove the oldest if exceeded size
     visualize_fov(img, translated_rect)
 
-    write_rotations(img, transformation_matrix, pitch, roll, yaw)
+    # write_rotations(img, , pitch, roll, yaw)
     cv2.imshow('Head Pose', img)
 
 
@@ -86,20 +102,16 @@ def visualize_fov(img, translated_rect):
             cv2.line(img, start_point, end_point, color,FOV_THICKNESS)
 
 
-def write_rotations(img, matrix, pitch, roll, yaw):
-    # Add transformation matrix, roll, pitch, and yaw to the bottom right
+def write_rotations(img,  pitch, roll, yaw):
+    # Add transformation matrix, roll, pitch, and yaw to the bottom righ
 
-    y0 = IMG_SIZE[1] - (matrix.shape[0] * TEXT_LINE_SPACING + 3 * TEXT_LINE_SPACING)
-    for i, row in enumerate(matrix):
-        text = " ".join(["{:.2f}".format(val) for val in row])
-        position = (10, y0 + i * TEXT_LINE_SPACING)
-        cv2.putText(img, text, position, FONT, FONT_SCALE, TEXT_COLOR, TEXT_THICKNESS)
-    y_pos = y0 + matrix.shape[0] * TEXT_LINE_SPACING
+    y_pos = 3 * TEXT_LINE_SPACING
     cv2.putText(img, f"Yaw: {yaw:.2f}", (10, y_pos), FONT, FONT_SCALE, TEXT_COLOR, TEXT_THICKNESS)
     cv2.putText(img, f"Pitch: {pitch:.2f}", (10, y_pos + TEXT_LINE_SPACING), FONT, FONT_SCALE, TEXT_COLOR,
                 TEXT_THICKNESS)
     cv2.putText(img, f"Roll: {roll:.2f}", (10, y_pos + 2 * TEXT_LINE_SPACING), FONT, FONT_SCALE, TEXT_COLOR,
                 TEXT_THICKNESS)
+
 
 
 def draw_markers(center, markers, img, ):

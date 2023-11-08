@@ -1,6 +1,6 @@
 import numpy as np
 import cv2
-from visualize_2d_new import visualize_head_pose_from_matrix
+from visualize_2d_new import visualize_head_pose_from_matrix, visualize_head_pose_from_yaw_pitch_roll
 import pandas as pd
 
 
@@ -82,34 +82,43 @@ def get_gaze_positions():
     df_max_confidence = df_max_confidence[['world_index', 'norm_pos_x', 'norm_pos_y']]
 
     return df_max_confidence.values.tolist()
+def get_head_poses():
+    # Load the DataFrame (assuming you've already done this)
+    df = pd.read_csv("000/exports/000/head_pose_tracker_poses.csv")
 
+    # Group by 'world_index' and get the row with the highest 'confidence' for each group
 
-def add_new_marker_using_homography(init_poses, new_marker_corners, H_current, camera_matrix, new_marker_id):
+    df = df[['pitch', 'yaw', 'roll']]
 
-    # Compute the inverse of the current homography
-    H_current_inv = np.linalg.inv(H_current)
+    return df.values.tolist()
 
-    # Initialize an array to hold the estimated initial positions of the new marker corners
-    estimated_init_corners = np.zeros_like(new_marker_corners)
+def get_marker_positions():
+    df = pd.read_csv("000/exports/000/surfaces/marker_detections.csv")
+    max_world_index_value = df['world_index'].max()
+    markers_per_frame = []
 
-    # Map each corner point of the new marker using the inverse homography
-    for i, corner in enumerate(new_marker_corners):
-        homogenous_corner = np.append(corner, 1)  # Convert to homogenous coordinates
-        estimated_init_corner = np.dot(H_current_inv, homogenous_corner)
-        # Normalize to get the estimated initial position in Cartesian coordinates
-        estimated_init_corners[i] = estimated_init_corner[:2] / estimated_init_corner[2]
+    for i in range(max_world_index_value + 1):  # Including the last index value
+        df_grouped_by_world_index = df[df["world_index"] == i]
+        markers_in_frame = {}
 
-    # Add the estimated initial position of the new marker to init_poses
-    init_poses[new_marker_id] = estimated_init_corners
+        # Iterate over the DataFrame rows
+        for index, line in df_grouped_by_world_index.iterrows():
+            marker_uid = line["marker_uid"][21:]
+            markers_in_frame[marker_uid] = [
+                [line["corner_0_x"], line["corner_0_y"]],
+                [line["corner_1_x"], line["corner_1_y"]],
+                [line["corner_2_x"], line["corner_2_y"]],
+                [line["corner_3_x"], line["corner_3_y"]]
+            ]
 
-    return init_poses
+        markers_per_frame.append(markers_in_frame)
 
-
+    return markers_per_frame
 video = "000/world.mp4"
 video = cv2.VideoCapture(video)
 calibrated = False
 # Set the starting frame to 500
-video.set(cv2.CAP_PROP_POS_FRAMES, 1)
+video.set(cv2.CAP_PROP_POS_FRAMES, 0)
 get_intrinsics()
 detector = setup_detector()
 
@@ -120,40 +129,22 @@ delay = int(1000 / fps)  # Real-time delay
 number_of_frames = int(video.get(cv2.CAP_PROP_FRAME_COUNT))
 
 gaze_positions = get_gaze_positions()
+head_poses = get_head_poses()
+marker_positions = get_marker_positions()
 gaze_positions_iter = iter(gaze_positions)
-avg_camera_pose = None
+head_poses_iter = iter(head_poses)
+marker_positions_iter = iter(marker_positions)
+
+
 
 while True:
     ret, frame = video.read()
     gaze_position = next(gaze_positions_iter)
-
-    if not ret:
-        break
-    corners, ids, rejected = detector.detectMarkers(frame)
-    if ids is None:
-        continue  # Skip the rest of the loop if no markers are detected
-    ids = [id[0] for id in ids]
-    cornerss = [marker[0] for marker in corners]
-
-    curr_poses = dict(zip(ids, cornerss))
-    if calibrated:
-
-        try:
-            avg_camera_pose = get_transformation_matrix(curr_poses)
-        except Exception as e:
-            print(f"No markers is not detected this frame, hence this exception has occured : {e}")
-
-        if avg_camera_pose is  None:
-            continue
-
-        visualize_head_pose_from_matrix(avg_camera_pose, gaze_position, curr_poses)
-
-    elif init_poses is None or (not calibrated and len(curr_poses.keys()) > len(init_poses)):
-        init_poses = curr_poses
-
-    draw_markers(frame, corners)
+    pitch,yaw,roll = next(head_poses_iter)
+    markers = next(marker_positions_iter)
+    # draw_markers(frame, corners)
     display(frame)
-
+    visualize_head_pose_from_yaw_pitch_roll(yaw,pitch,roll,gaze_position,markers)
     key = cv2.waitKey(delay) & 0xFF
     if key == ord("q"):
         break
