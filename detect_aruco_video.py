@@ -1,99 +1,47 @@
 import numpy as np
 import cv2
-from visualize_2d_new import visualize_head_pose_from_matrix, visualize_head_pose_from_yaw_pitch_roll
+from visualize_2d_new import  Visualizer
+from utils import get_translated_view_rectangle
 import pandas as pd
+import argparse
+from plot_data import initialize_plot, update_plot
+from config import *
+from utils import *
 
 
-def setup_detector():
-    aruco_params = cv2.aruco.DetectorParameters()
-    aruco_dict = cv2.aruco.getPredefinedDictionary(cv2.aruco.DICT_APRILTAG_36h11)
-
-    detector_ = cv2.aruco.ArucoDetector(aruco_dict, aruco_params)
-
-    return detector_
-
-
-def draw_markers(image, corners_for_drawing):
-    cv2.aruco.drawDetectedMarkers(image, corners_for_drawing)
-
-
-def get_intrinsics():
-    global camera_matrix, dist_matrix
-    camera_matrix = np.array(
-        [[794.3311439869655, 0.0, 633.0104437728625], [0.0, 793.5290139393004, 397.36927353414865], [0.0, 0.0, 1.0]])
-    dist_matrix = np.array([[-0.3758628065070806, 0.1643326166951343, 0.00012182540692089567, 0.00013422608638039466,
-                             0.03343691733865076, 0.08235235770849726, -0.08225804883227375, 0.14463365333602152]])
-
-
-def display(image):
-    cv2.imshow("Image", image)
-
-
-def decompose_homography(K, H):
-    # Normalize the homography
-    H /= H[2, 2]
-
-    # Compute the rotation matrix
-    K_inv = np.linalg.inv(K)
-    R_ = np.dot(K_inv, H)
-
-    # Orthonormalize the rotation matrix
-    U, _, Vt = np.linalg.svd(R_[:, :2])
-
-    R = np.zeros((3, 3))
-    W = np.array([[1, 0], [0, 1], [0, 0]])  # We'll create a transformation matrix to fix the sizes
-    R[:, :2] = np.dot(U, np.dot(W, Vt))
-    R[:, 2] = np.cross(R[:, 0], R[:, 1])
-
-    return R
-
-
-def get_transformation_matrix(curr_poses):
-    src_pts = []
-    dst_pts = []
-
-    for id, curr_pose in curr_poses.items():
-        if id not in init_poses:
-            continue
-
-        src_pts.extend(init_poses[id])
-        dst_pts.extend(curr_poses[id])
-    src_pts = np.array(src_pts)
-    dst_pts = np.array(dst_pts)
-    # print(src_pts, dst_pts)
-    H, _ = cv2.findHomography(src_pts, dst_pts)
-
-    # Extract rotation matrix from the homography
-    R = decompose_homography(camera_matrix, H)
-
-    T = np.eye(4)
-    T[:3, :3] = R
-
-    return T
-
-
-def get_gaze_positions():
+def get_gaze_positions(file_path):
     # Load the DataFrame (assuming you've already done this)
-    df = pd.read_csv("000/exports/000/gaze_positions.csv")
+    # df = pd.read_csv("000/exports/000/gaze_positions.csv")
+    df = pd.read_csv(file_path)
 
     # Group by 'world_index' and get the row with the highest 'confidence' for each group
     df_max_confidence = df.loc[df.groupby('world_index')['confidence'].idxmax()]
 
-    df_max_confidence = df_max_confidence[['world_index', 'norm_pos_x', 'norm_pos_y']]
+    df_max_confidence = df_max_confidence[['norm_pos_x', 'norm_pos_y']]
 
     return df_max_confidence.values.tolist()
-def get_head_poses():
+
+
+def get_head_poses(head_poses, timestamps):
     # Load the DataFrame (assuming you've already done this)
-    df = pd.read_csv("000/exports/000/head_pose_tracker_poses.csv")
-
+    # df = pd.read_csv("000/exports/000/head_pose_tracker_poses.csv")
+    head_pose_data = pd.read_csv(head_poses)
+    frame_timestamps = pd.read_csv(timestamps)["# timestamps [seconds]"].tolist()
     # Group by 'world_index' and get the row with the highest 'confidence' for each group
+    # Find nearest head pose for each frame
+    nearest_head_poses = []
+    for frame_ts in frame_timestamps:
+        nearest_index = (head_pose_data['timestamp'] - frame_ts).abs().idxmin()
+        nearest_head_poses.append(head_pose_data.iloc[nearest_index])
 
-    df = df[['pitch', 'yaw', 'roll']]
+    nearest_head_poses_list_of_lists = [[pose['pitch'], pose['yaw'], pose['roll']] for pose in nearest_head_poses]
 
-    return df.values.tolist()
+    return nearest_head_poses_list_of_lists
 
-def get_marker_positions():
-    df = pd.read_csv("000/exports/000/surfaces/marker_detections.csv")
+
+def get_marker_positions(file_path):
+    # df = pd.read_csv("000/exports/000/surfaces/marker_detections.csv")
+    df = pd.read_csv(file_path)
     max_world_index_value = df['world_index'].max()
     markers_per_frame = []
 
@@ -114,48 +62,139 @@ def get_marker_positions():
         markers_per_frame.append(markers_in_frame)
 
     return markers_per_frame
-video = "000/world.mp4"
-video = cv2.VideoCapture(video)
-calibrated = False
-# Set the starting frame to 500
-video.set(cv2.CAP_PROP_POS_FRAMES, 0)
-get_intrinsics()
-detector = setup_detector()
-
-init_poses = None
-
-fps = video.get(cv2.CAP_PROP_FPS)
-delay = int(1000 / fps)  # Real-time delay
-number_of_frames = int(video.get(cv2.CAP_PROP_FRAME_COUNT))
-
-gaze_positions = get_gaze_positions()
-head_poses = get_head_poses()
-marker_positions = get_marker_positions()
-gaze_positions_iter = iter(gaze_positions)
-head_poses_iter = iter(head_poses)
-marker_positions_iter = iter(marker_positions)
 
 
+def get_eye_diameters(file_path):
+    # df = pd.read_csv("000/exports/000/pupil_positions.csv")
+    df = pd.read_csv(file_path)
 
-while True:
-    ret, frame = video.read()
-    gaze_position = next(gaze_positions_iter)
-    pitch,yaw,roll = next(head_poses_iter)
-    markers = next(marker_positions_iter)
-    # draw_markers(frame, corners)
-    display(frame)
-    visualize_head_pose_from_yaw_pitch_roll(yaw,pitch,roll,gaze_position,markers)
-    key = cv2.waitKey(delay) & 0xFF
-    if key == ord("q"):
-        break
-    elif key == ord("r") and not calibrated:
-        calibrated = True
+    df_max_confidence = df.loc[df.groupby(['world_index', 'eye_id'])['confidence'].idxmax()]
 
-    elif key == ord("w"):
+    df_max_confidence = df_max_confidence[['world_index', 'eye_id', 'diameter']]
+    pivot_df = df_max_confidence.pivot(index='world_index', columns='eye_id', values='diameter')
 
-        key = cv2.waitKey()
+    return pivot_df.values.tolist()
+
+
+def get_blinks(file_path):
+    df = pd.read_csv(file_path)
+    df = df['start_frame_index']
+    return df.values.tolist()
+
+
+def add_blink_to_list(blinks: list, frame_stamp):
+    blinks.append(frame_stamp)
+    if len(blinks) == BLINK_LIST_LENGTH:
+        return blinks.pop(0)
+
+
+def main():
+    video_path, headpose_tracker_path, marker_detections_path, pupil_positions_path, gaze_positions_path, blinks_path, world_timestamps_path= init_args()
+    video = cv2.VideoCapture(video_path)
+    video.set(cv2.CAP_PROP_POS_FRAMES, 0)
+
+    fps = video.get(cv2.CAP_PROP_FPS)
+    delay = int(1000 / fps)  # Real-time delay
+    number_of_frames = int(video.get(cv2.CAP_PROP_FRAME_COUNT))
+
+
+    blinks, eye_diameters, gaze_positions, head_poses, marker_positions = get_data_from_csvs(blinks_path,
+                                                                                             gaze_positions_path,
+                                                                                             headpose_tracker_path,
+                                                                                             marker_detections_path,
+                                                                                             pupil_positions_path,
+                                                                                             world_timestamps_path)
+    eye_diameter_iter, gaze_positions_iter, head_poses_iter, marker_positions_iter = get_iters_from_lists(eye_diameters,
+                                                                                                          gaze_positions,
+                                                                                                          head_poses,
+                                                                                                          marker_positions)
+    print(number_of_frames, len(head_poses), len(gaze_positions), len(marker_positions), len(eye_diameters))
+    blink_list = [0]
+    last_index = -1
+    frame_index = 0
+    visualizer = Visualizer(number_of_frames)
+    while True:
+        ret, frame = video.read()
+
+        gaze_position = next(gaze_positions_iter)
+        pitch, yaw, roll = next(head_poses_iter)
+        markers = next(marker_positions_iter)
+        eye_diameter = next(eye_diameter_iter)
+
+        fov_center, fov_rectangle = get_translated_view_rectangle(pitch, roll, yaw)
+        adjusted_gaze_pos = estimate_gaze_pos(fov_center, gaze_position, roll)
+        head_pose = {"yaw": yaw, "roll": roll, "pitch": pitch}
+        diameter_mean = (eye_diameter[0] + eye_diameter[1]) / 2
+        blink_rate = estimate_blink_rate(blink_list, blinks, fps, frame_index, last_index)
+
+
+        visualizer.update(fov_rectangle, fov_center, markers, head_pose, adjusted_gaze_pos, blink_rate, diameter_mean,
+                          frame_index)
+        cv2.imshow("Image", frame)
+
+        key = cv2.waitKey(delay) & 0xFF
         if key == ord("q"):
             break
+        elif key == ord("w"):
+            key = cv2.waitKey()
+            if key == ord("q"):
+                break
+        frame_index += 1
+    cv2.destroyAllWindows()
+    video.release()
 
-cv2.destroyAllWindows()
-video.release()
+
+def estimate_blink_rate(blink_list, blinks, fps, frame_index, last_index):
+    if blinks[0] == frame_index:
+        temp_value = add_blink_to_list(blink_list, blinks.pop(0))
+        if temp_value != None:
+            last_index = temp_value
+    blink_rate = (fps * len(blink_list)) / (frame_index - last_index)
+    return blink_rate
+
+
+def get_iters_from_lists(eye_diameters, gaze_positions, head_poses, marker_positions):
+    gaze_positions_iter = iter(gaze_positions)
+    head_poses_iter = iter(head_poses)
+    marker_positions_iter = iter(marker_positions)
+    eye_diameter_iter = iter(eye_diameters)
+    return eye_diameter_iter, gaze_positions_iter, head_poses_iter, marker_positions_iter
+
+
+def get_data_from_csvs(blinks_path, gaze_positions_path, headpose_tracker_path, marker_detections_path,
+                       pupil_positions_path, world_timestamps_path):
+    blinks = get_blinks(blinks_path)
+    gaze_positions = get_gaze_positions(gaze_positions_path)
+    head_poses = get_head_poses(headpose_tracker_path,world_timestamps_path)
+    marker_positions = get_marker_positions(marker_detections_path)
+    eye_diameters = get_eye_diameters(pupil_positions_path)
+    return blinks, eye_diameters, gaze_positions, head_poses, marker_positions
+
+
+def init_args():
+    parser = argparse.ArgumentParser(description="Process some integers.")
+
+    # Define arguments
+    parser.add_argument("-b", "--blinks", type=str, help="Path to the blink")
+    parser.add_argument("-t", "--headpose_tracker", type=str, help="Path to head_pose_tracker_poses.csv CSV file")
+    parser.add_argument("-m", "--marker_detections", type=str, help="Path to marker_detections.csv CSV file")
+    parser.add_argument("-p", "--pupil_positions", type=str, help="Path to pupil_positions.csv CSV file")
+    parser.add_argument("-g", "--gaze_positions", type=str, help="Path to gaze_positions.csv CSV file")
+    parser.add_argument("-v", "--video", type=str, help="Path to the video of the world camera")
+    parser.add_argument("-w", "--world_timestamps", type=str, help="Path to the video of the world_timestamps.csv file")
+
+    # Parse arguments
+    args = parser.parse_args()
+    blinks_path = args.blinks
+    video_path = args.video
+    headpose_tracker_path = args.headpose_tracker
+    marker_detections_path = args.marker_detections
+    pupil_positions_path = args.pupil_positions
+    gaze_positions_path = args.gaze_positions
+    world_timestamps_path = args.world_timestamps
+
+    return video_path, headpose_tracker_path, marker_detections_path, pupil_positions_path, gaze_positions_path, blinks_path, world_timestamps_path
+
+
+if __name__ == "__main__":
+    main()
