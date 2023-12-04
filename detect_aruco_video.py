@@ -96,7 +96,8 @@ def main():
     fps = video.get(cv2.CAP_PROP_FPS)
     delay = int(1000 / fps)  # Real-time delay
     number_of_frames = int(video.get(cv2.CAP_PROP_FRAME_COUNT))
-
+    frame_width = int(video.get(cv2.CAP_PROP_FRAME_WIDTH))
+    frame_height = int(video.get(cv2.CAP_PROP_FRAME_HEIGHT))
 
     blinks, eye_diameters, gaze_positions, head_poses, marker_positions = get_data_from_csvs(blinks_path,
                                                                                              gaze_positions_path,
@@ -108,11 +109,10 @@ def main():
                                                                                                           gaze_positions,
                                                                                                           head_poses,
                                                                                                           marker_positions)
-    print(number_of_frames, len(head_poses), len(gaze_positions), len(marker_positions), len(eye_diameters))
     blink_list = [0]
     last_index = -1
     frame_index = 0
-    visualizer = Visualizer(number_of_frames)
+    visualizer = Visualizer(number_of_frames, (frame_width,frame_height), plot_heatmap=False)
     while True:
         ret, frame = video.read()
 
