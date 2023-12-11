@@ -78,7 +78,7 @@ def get_eye_diameters(file_path):
 
 def get_blinks(file_path):
     df = pd.read_csv(file_path)
-    df = df['start_frame_index']
+    df = df[['start_frame_index','end_frame_index']]
     return df.values.tolist()
 
 
@@ -86,6 +86,7 @@ def add_blink_to_list(blinks: list, frame_stamp):
     blinks.append(frame_stamp)
     if len(blinks) == BLINK_LIST_LENGTH:
         return blinks.pop(0)
+
 
 
 def main():
@@ -109,10 +110,10 @@ def main():
                                                                                                           gaze_positions,
                                                                                                           head_poses,
                                                                                                           marker_positions)
-    blink_list = [0]
+    blink_list = [[0,0]]
     last_index = -1
     frame_index = 0
-    visualizer = Visualizer(number_of_frames, (frame_width,frame_height), plot_heatmap=False)
+    visualizer = Visualizer(number_of_frames, (frame_width,frame_height), plot_heatmap=True)
     while True:
         ret, frame = video.read()
 
@@ -125,10 +126,11 @@ def main():
         adjusted_gaze_pos = estimate_gaze_pos(fov_center, gaze_position, roll)
         head_pose = {"yaw": yaw, "roll": roll, "pitch": pitch}
         diameter_mean = (eye_diameter[0] + eye_diameter[1]) / 2
-        blink_rate = estimate_blink_rate(blink_list, blinks, fps, frame_index, last_index)
+        blink_rate, blink, last_index = estimate_blink_rate(blink_list, blinks, fps, frame_index, last_index)
+        adjusted_normalized_markers = get_adjusted_normalized_markers(fov_center,markers,roll)
 
 
-        visualizer.update(fov_rectangle, fov_center, markers, head_pose, adjusted_gaze_pos, blink_rate, diameter_mean,
+        visualizer.update(fov_rectangle, fov_center, adjusted_normalized_markers, head_pose, adjusted_gaze_pos, blink_rate, blink, diameter_mean,
                           frame_index)
         cv2.imshow("Image", frame)
 
@@ -145,12 +147,14 @@ def main():
 
 
 def estimate_blink_rate(blink_list, blinks, fps, frame_index, last_index):
-    if blinks[0] == frame_index:
+    blink = 0
+    if blinks[0][0] == frame_index:
+        blink = 1
         temp_value = add_blink_to_list(blink_list, blinks.pop(0))
         if temp_value != None:
-            last_index = temp_value
+            last_index = temp_value[0]
     blink_rate = (fps * len(blink_list)) / (frame_index - last_index)
-    return blink_rate
+    return blink_rate, blink, last_index
 
 
 def get_iters_from_lists(eye_diameters, gaze_positions, head_poses, marker_positions):
@@ -164,6 +168,7 @@ def get_iters_from_lists(eye_diameters, gaze_positions, head_poses, marker_posit
 def get_data_from_csvs(blinks_path, gaze_positions_path, headpose_tracker_path, marker_detections_path,
                        pupil_positions_path, world_timestamps_path):
     blinks = get_blinks(blinks_path)
+    print(blinks)
     gaze_positions = get_gaze_positions(gaze_positions_path)
     head_poses = get_head_poses(headpose_tracker_path,world_timestamps_path)
     marker_positions = get_marker_positions(marker_detections_path)

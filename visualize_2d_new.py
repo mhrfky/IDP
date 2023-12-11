@@ -5,7 +5,7 @@ import cv2
 from config import *
 from scipy.spatial.transform import Rotation
 import matplotlib.pyplot as plt
-from utils import rotate_point, get_translated_view_rectangle, get_eye_dilation_radius, estimate_gaze_pos
+from utils import gaussian_kernel, get_translated_view_rectangle, get_eye_dilation_radius, normalize_marker_positions, get_center_of_marker_from_corners
 
 import matplotlib.pyplot as plt
 import numpy as np
@@ -14,6 +14,7 @@ import numpy as np
 import numpy as np
 import seaborn as sns
 import matplotlib.pyplot as plt
+
 class Heatmappper:
     def __init__(self, img_size, bins=40):
         self.bins = bins
@@ -22,31 +23,83 @@ class Heatmappper:
 
         # Create the heatmap figure and axes only once
         self.fig, self.ax = plt.subplots()
-        self.heatmap_plot = self.ax.imshow(np.zeros((bins, bins)), cmap='hot', aspect='auto')
+        self.heatmap_plot = self.ax.imshow(self.heatmap_data, cmap='hot', aspect='auto')
         self.colorbar = self.fig.colorbar(self.heatmap_plot)
         self.ax.set_title('Cumulative Gaze Heatmap')
+        self.marker_plots = []  # List to store marker plot objects
+        self.kernel = gaussian_kernel(GAZE_KERNEL_FOR_HEATMAP)
         plt.show(block=False)
 
-    def update(self, gaze_position):
+    def add_markers(self, marker_positions):
+        # Remove previous markers
+        for plot in self.marker_plots:
+            plot.remove()
+        self.marker_plots.clear()
+
+        # Plot new markers
+        for pos in marker_positions:
+            pixel_x = int(pos[0] )
+            pixel_y = int(pos[1] )
+            plot = self.ax.plot(pixel_x, pixel_y, 'o', color='blue')
+            self.marker_plots.extend(plot)
+
+    def update(self, gaze_position, marker_positions=None):
         # Normalize and convert the gaze position to pixel coordinates
-        pixel_x = int(gaze_position[0] * self.img_size[0])
-        pixel_y = int(gaze_position[1] * self.img_size[1])
+        x_bin, y_bin = gaze_position
 
-        # Calculate the corresponding bin for the gaze position
-        x_bin = min(max(pixel_x // (self.img_size[0] // self.bins), 0), self.bins - 1)
-        y_bin = min(max(pixel_y // (self.img_size[1] // self.bins), 0), self.bins - 1)
-
+        # Check bounds to avoid index errors
+        x_bin = max(0, min(x_bin, self.bins - 1))
+        y_bin = max(0, min(y_bin, self.bins - 1))
         # Accumulate the gaze data
-        self.heatmap_data[y_bin, x_bin] += 1
-
+        for i in range(-GAZE_KERNEL_FOR_HEATMAP // 2, GAZE_KERNEL_FOR_HEATMAP // 2 + 1):
+            for j in range(-GAZE_KERNEL_FOR_HEATMAP // 2, GAZE_KERNEL_FOR_HEATMAP // 2 + 1):
+                if 0 <= x_bin + i < self.bins and 0 <= y_bin + j < self.bins:
+                    self.heatmap_data[y_bin + j, x_bin + i] += self.kernel[j + GAZE_KERNEL_FOR_HEATMAP // 2, i + GAZE_KERNEL_FOR_HEATMAP // 2]
+        # print(x_bin,y_bin)
         # Update the heatmap plot with new data
         self.heatmap_plot.set_data(self.heatmap_data)
         self.heatmap_plot.set_clim(vmin=0, vmax=np.max(self.heatmap_data))
+
+        # # Add markers to the heatmap if provided
+        if marker_positions:
+            self.add_markers(marker_positions)
 
         # Redraw the plot
         self.fig.canvas.draw_idle()
         plt.pause(0.001)
 
+
+class BlinkPlotter:
+    def __init__(self, x_lim=(0, 10), y_lim=(0, 1), title="", x_label="", y_label=""):
+        plt.ion()  # Interactive mode on
+        self.fig, self.ax = plt.subplots()
+        self.ax.set_xlim(*x_lim)  # Set x-axis limits (last 10 seconds)
+        self.ax.set_ylim(*y_lim)  # Set y-axis limits
+        self.ax.set_title(title)
+        self.ax.set_xlabel(x_label)
+        self.ax.set_ylabel(y_label)
+        self.blink_events = []  # Store the timestamps of blinks
+
+    def add_blink(self, timestamp):
+        # Add the timestamp of the blink to the list
+        self.blink_events.append(timestamp)
+
+    def update(self, current_time):
+        # Remove blinks older than 10 seconds from the current time
+        self.blink_events = [t for t in self.blink_events if current_time - t <= 10]
+
+        # Clear the plot
+        self.ax.cla()
+        self.ax.set_xlim(current_time - 10, current_time)  # Update x-axis to the last 10 seconds
+        self.ax.set_ylim(0, 1)
+
+        # Plot each blink as a vertical line
+        for t in self.blink_events:
+            self.ax.axvline(x=t, color='red', linestyle='-', linewidth=2)
+
+        # Redraw the plot
+        self.fig.canvas.draw()
+        self.fig.canvas.flush_events()
 
 
 class Plotter:
@@ -78,41 +131,62 @@ class Plotter:
 class Visualizer:
     def __init__(self, number_of_frames, plot_blink=True, plot_dilation=True, plot_heatmap=True):
         if plot_blink:
-            self.blink_plotter = Plotter((0, number_of_frames), (0, 1),"Blink Rate over time", "Time", "Blink rate")
+            self.blink_rate_plotter = Plotter((0, number_of_frames/FPS), (0, 2),"Blink Rate over time", "Time", "Blink rate")
+            self.blink_plotter = BlinkPlotter(
+                x_lim=(0, 10),
+                y_lim=(0, 1),
+                title="Blinks over time",
+                x_label="Time",
+                y_label="Blink"
+            )
         else:
-            self.blink_plotter = None
+            self.blink_rate_plotter = None
         if plot_dilation:
-            self.dilation_plotter = Plotter((0, number_of_frames), (0, 100), "Eye Dilation over time", "Time", "Eye Dilation")
+            self.dilation_plotter = Plotter((0, number_of_frames/FPS), (0, 100), "Eye Dilation over time", "Time", "Eye Dilation")
         else:
             self.dilation_plotter = None
         if plot_heatmap:
-            self.heatmappper = Heatmappper(IMG_SIZE, bins=40)
+            self.heatmappper = Heatmappper(IMG_SIZE, bins=80)
         else:
             self.heatmappper = None
 
 
         self.past_poses = []
         self.gaze_positions = []
-        self.bins = 40
+        self.bins = 80
 
-    def update(self, translated_rect, fov_center, markers, head_pose, gaze_position, blink_rate, dilation_radius,
+    def update(self, translated_rect, fov_center, markers, head_pose, gaze_position, blink_rate, blink, dilation_radius,
                frame_id):
         img = np.ones((IMG_SIZE[1], IMG_SIZE[0], 3), dtype=np.uint8) * 255
         fields_dict = head_pose
-        if self.blink_plotter is not None:
-            self.blink_plotter.update(frame_id, blink_rate)
+        if self.blink_rate_plotter is not None:
+            self.blink_rate_plotter.update(frame_id/FPS, blink_rate)
+            if blink:
+                self.blink_plotter.add_blink(frame_id/FPS)
+            self.blink_plotter.update(frame_id/FPS)
+
             fields_dict["Blink rate"] = blink_rate
         if self.dilation_plotter is not None:
-            self.dilation_plotter.update(frame_id, dilation_radius)
+            self.dilation_plotter.update(frame_id/FPS, dilation_radius)
             fields_dict["Dilation Radius"] = dilation_radius
-
         if self.heatmappper is not None:
-            self.gaze_positions.append((gaze_position[0], gaze_position[1]))
-            normalized_gaze_position = [gaze_position[0] / IMG_SIZE[0], gaze_position[1] / IMG_SIZE[1]]
-            self.heatmappper.update(normalized_gaze_position)
+
+
+            # Normalize and scale gaze position to heatmap bins
+            normalized_gaze_x = int((gaze_position[0] / IMG_SIZE[0]) * (self.bins - 1))
+            normalized_gaze_y = int((gaze_position[1]/ IMG_SIZE[1]) * (self.bins - 1))
+
+            # print(f"Normalized Gaze for Heatmap: {normalized_gaze_x}, {normalized_gaze_y}")
+
+            # Normalize marker positions
+            heatmap_marker_positions = [(int(marker_center[0] * (self.bins - 1)/IMG_SIZE[0]),int(marker_center[1] * (self.bins - 1)/IMG_SIZE[1])) for id, marker_center, corners in markers]
+
+            # Update heatmap with normalized and scaled gaze position
+            self.heatmappper.update([normalized_gaze_x, normalized_gaze_y], heatmap_marker_positions)
+
         self.visualize_fov(img, translated_rect)
         self.draw_gaze_and_dilation_circle(img, gaze_position, dilation_radius)
-        self.draw_markers(img, fov_center, markers, head_pose['roll'])
+        self.draw_markers(img, markers)
 
         self.write_features(img, fields_dict)
         # self.generate_heatmap()
@@ -144,29 +218,13 @@ class Visualizer:
                         TEXT_THICKNESS)
             i += 1
 
-    def draw_markers(self, img, center, markers, roll):
-        for marker_id, marker in markers.items():
-            marker_center = [sum(p[0] for p in marker) / len(marker),
-                             sum(p[1] for p in marker) / len(marker)]
-
-            scaled_marker = [[marker_center[0] + (point[0] - marker_center[0]) * MARKER_ENLARGEMENT_RATE,
-                              marker_center[1] + (point[1] - marker_center[1]) * MARKER_ENLARGEMENT_RATE]
-                             for point in marker]
-
-            # Rotate the markers
-            rotated_marker = [rotate_point(point, marker_center, roll) for point in scaled_marker]
-
-            # Normalize the marker points
-            normalized_marker = [[(point[0] / VIDEO_WIDTH) * WIDTH + center[0] - WIDTH / 2,
-                                  (point[1] / VIDEO_HEIGHT) * HEIGHT + center[1] - HEIGHT / 2]
-                                 for point in rotated_marker]
-
+    def draw_markers(self, img, markers):
+        for marker_id, marker_center, marker in markers:
             # Draw the markers
             for j in range(4):
-                start_point = (int(normalized_marker[j][0]), int(normalized_marker[j][1]))
-                end_point = (int(normalized_marker[(j + 1) % 4][0]), int(normalized_marker[(j + 1) % 4][1]))
+                start_point = (int(marker[j][0]), int(marker[j][1]))
+                end_point = (int(marker[(j + 1) % 4][0]), int(marker[(j + 1) % 4][1]))
                 cv2.line(img, start_point, end_point, MARKER_VISIBLE_COLOR, MARKER_THICKNESS)
-
     def draw_gaze_and_dilation_circle(self, img, gaze_position, eye_diameter):
         eye_dilation_radius = eye_diameter / EYE_DIAMETER_NORMALIZING_FACTOR
         eye_dilation_radius = math.floor(eye_dilation_radius * GAZE_CIRCLE_RADIUS)
