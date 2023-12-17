@@ -5,7 +5,7 @@ import cv2
 from config import *
 from scipy.spatial.transform import Rotation
 import matplotlib.pyplot as plt
-from utils import gaussian_kernel, get_translated_view_rectangle, get_eye_dilation_radius, normalize_marker_positions, get_center_of_marker_from_corners
+from utils import gaussian_kernel
 
 import matplotlib.pyplot as plt
 import numpy as np

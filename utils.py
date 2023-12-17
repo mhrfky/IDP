@@ -2,7 +2,16 @@ import numpy as np
 from config import *
 import math
 
+def get_continous_blinks_list(blinks,number_of_frames):
 
+    blink_values = np.zeros(number_of_frames)
+    for blink in blinks:
+        start, end = blink
+        blink_values[start:end] = 1
+    return blink_values
+
+def get_marker_count_per_frame(marker_positions):
+    return [len(markers) for markers in marker_positions]
 def gaussian_kernel(size, sigma=1):
     """Generates a 2D Gaussian kernel."""
     size = int(size) // 2
@@ -21,9 +30,11 @@ def rotate_point(point, center, angle):
     return qx, qy
 
 
+
+
 def get_translated_view_rectangle(pitch, roll, yaw):
-    center_y = int((90 - yaw) / 180 * IMG_SIZE[1])
-    center_x = int((90 + pitch) / 180 * IMG_SIZE[0])
+    center_y = int((90 - pitch) / 180 * IMG_SIZE[1])
+    center_x = int((90 + yaw) / 180 * IMG_SIZE[0])
     center = (center_x, center_y)
     rect = np.array([
         [-WIDTH / 2, -HEIGHT / 2],
@@ -31,9 +42,7 @@ def get_translated_view_rectangle(pitch, roll, yaw):
         [WIDTH / 2, HEIGHT / 2],
         [-WIDTH / 2, HEIGHT / 2]
     ])
-    print("fuck me oh")
-
-    rotation_matrix = cv2.getRotationMatrix2D((0, 0), roll, 1)
+    rotation_matrix = cv2.getRotationMatrix2D((0, 0), -roll, 1)
     rotated_rect = np.dot(rect, rotation_matrix[:, :2].T)
     translated_rect = rotated_rect + center
     return center, translated_rect
@@ -58,6 +67,7 @@ def get_center_of_marker_from_corners(marker):
     marker_center = [sum(p[0] for p in marker) / len(marker),
                      sum(p[1] for p in marker) / len(marker)]
     return marker_center
+
 def normalize_marker_positions(markers, img_size, bins):
     normalized_positions = []
     for i, marker in markers.items():

@@ -1,85 +1,12 @@
 import numpy as np
 import cv2
+from file_utils import get_blinks, get_eye_diameters, get_gaze_positions, get_head_poses, get_marker_positions
 from visualize_2d_new import  Visualizer
 from utils import get_translated_view_rectangle
-import pandas as pd
 import argparse
 from plot_data import initialize_plot, update_plot
 from config import *
 from utils import *
-
-
-def get_gaze_positions(file_path):
-    # Load the DataFrame (assuming you've already done this)
-    # df = pd.read_csv("000/exports/000/gaze_positions.csv")
-    df = pd.read_csv(file_path)
-
-    # Group by 'world_index' and get the row with the highest 'confidence' for each group
-    df_max_confidence = df.loc[df.groupby('world_index')['confidence'].idxmax()]
-
-    df_max_confidence = df_max_confidence[['norm_pos_x', 'norm_pos_y']]
-
-    return df_max_confidence.values.tolist()
-
-
-def get_head_poses(head_poses, timestamps):
-    # Load the DataFrame (assuming you've already done this)
-    # df = pd.read_csv("000/exports/000/head_pose_tracker_poses.csv")
-    head_pose_data = pd.read_csv(head_poses)
-    frame_timestamps = pd.read_csv(timestamps)["# timestamps [seconds]"].tolist()
-    # Group by 'world_index' and get the row with the highest 'confidence' for each group
-    # Find nearest head pose for each frame
-    nearest_head_poses = []
-    for frame_ts in frame_timestamps:
-        nearest_index = (head_pose_data['timestamp'] - frame_ts).abs().idxmin()
-        nearest_head_poses.append(head_pose_data.iloc[nearest_index])
-
-    nearest_head_poses_list_of_lists = [[pose['pitch'], pose['yaw'], pose['roll']] for pose in nearest_head_poses]
-
-    return nearest_head_poses_list_of_lists
-
-
-def get_marker_positions(file_path):
-    # df = pd.read_csv("000/exports/000/surfaces/marker_detections.csv")
-    df = pd.read_csv(file_path)
-    max_world_index_value = df['world_index'].max()
-    markers_per_frame = []
-
-    for i in range(max_world_index_value + 1):  # Including the last index value
-        df_grouped_by_world_index = df[df["world_index"] == i]
-        markers_in_frame = {}
-
-        # Iterate over the DataFrame rows
-        for index, line in df_grouped_by_world_index.iterrows():
-            marker_uid = line["marker_uid"][21:]
-            markers_in_frame[marker_uid] = [
-                [line["corner_0_x"], line["corner_0_y"]],
-                [line["corner_1_x"], line["corner_1_y"]],
-                [line["corner_2_x"], line["corner_2_y"]],
-                [line["corner_3_x"], line["corner_3_y"]]
-            ]
-
-        markers_per_frame.append(markers_in_frame)
-
-    return markers_per_frame
-
-
-def get_eye_diameters(file_path):
-    # df = pd.read_csv("000/exports/000/pupil_positions.csv")
-    df = pd.read_csv(file_path)
-
-    df_max_confidence = df.loc[df.groupby(['world_index', 'eye_id'])['confidence'].idxmax()]
-
-    df_max_confidence = df_max_confidence[['world_index', 'eye_id', 'diameter']]
-    pivot_df = df_max_confidence.pivot(index='world_index', columns='eye_id', values='diameter')
-
-    return pivot_df.values.tolist()
-
-
-def get_blinks(file_path):
-    df = pd.read_csv(file_path)
-    df = df[['start_frame_index','end_frame_index']]
-    return df.values.tolist()
 
 
 def add_blink_to_list(blinks: list, frame_stamp):
@@ -167,12 +94,11 @@ def get_iters_from_lists(eye_diameters, gaze_positions, head_poses, marker_posit
 
 def get_data_from_csvs(blinks_path, gaze_positions_path, headpose_tracker_path, marker_detections_path,
                        pupil_positions_path, world_timestamps_path):
-    blinks = get_blinks(blinks_path)
-    print(blinks)
-    gaze_positions = get_gaze_positions(gaze_positions_path)
-    head_poses = get_head_poses(headpose_tracker_path,world_timestamps_path)
+    blinks = get_blinks(blinks_path).values.tolist()
+    gaze_positions = get_gaze_positions(gaze_positions_path).values.tolist()
+    head_poses = get_head_poses(headpose_tracker_path,world_timestamps_path).values.tolist()
     marker_positions = get_marker_positions(marker_detections_path)
-    eye_diameters = get_eye_diameters(pupil_positions_path)
+    eye_diameters = get_eye_diameters(pupil_positions_path).values.tolist()
     return blinks, eye_diameters, gaze_positions, head_poses, marker_positions
 
 
