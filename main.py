@@ -1,7 +1,7 @@
 import numpy as np
 import cv2
 from file_utils import get_blinks, get_eye_diameters, get_gaze_positions, get_head_poses, get_marker_positions
-from visualize_2d_new import  Visualizer
+from opencv_visualization import  Visualizer
 from utils import get_translated_view_rectangle
 import argparse
 from plot_data import initialize_plot, update_plot
