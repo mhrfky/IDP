@@ -75,6 +75,9 @@ class BlinkPlotter:
         self.fig, self.ax = plt.subplots()
         self.ax.set_xlim(*x_lim)  # Set x-axis limits (last 10 seconds)
         self.ax.set_ylim(*y_lim)  # Set y-axis limits
+        self.title = title
+        self.x_label = x_label
+        self.y_label = y_label
         self.ax.set_title(title)
         self.ax.set_xlabel(x_label)
         self.ax.set_ylabel(y_label)
@@ -90,6 +93,9 @@ class BlinkPlotter:
 
         # Clear the plot
         self.ax.cla()
+        self.ax.set_title(self.title )
+        self.ax.set_xlabel(self.x_label)
+        self.ax.set_ylabel(self.y_label)
         self.ax.set_xlim(current_time - 10, current_time)  # Update x-axis to the last 10 seconds
         self.ax.set_ylim(0, 1)
 
@@ -189,7 +195,6 @@ class Visualizer:
         self.draw_markers(img, markers)
 
         self.write_features(img, fields_dict)
-        # self.generate_heatmap()
         cv2.imshow("View", img)
 
     def visualize_fov(self, img, translated_rect):
